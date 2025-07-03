@@ -447,7 +447,7 @@ const MobileViewToggle = ({ mobileView, onToggle }) => (
   <div className="mobile-view-toggle-bar">
     {mobileView === 'story' ? (
       <button onClick={() => onToggle('settings')} className="btn-secondary">
-        {Icons.Settings} View Story Settings
+        View Story Settings
       </button>
     ) : (
       <button onClick={() => onToggle('story')} className="btn-secondary">
@@ -465,16 +465,18 @@ const Header = ({ onLogout, isDarkMode, onToggleTheme, view, onNavigate, onToggl
       {/* Desktop Header Actions */}
       <div className="header-actions">
         <button onClick={() => onNavigate('create')} className={`header-btn ${view === 'create' ? 'active' : ''}`}>
-          {Icons.Create} Create Story
+          Create
         </button>
         <button onClick={() => onNavigate('history')} className={`header-btn ${view === 'history' ? 'active' : ''}`}>
-          {Icons.History} History
+          History
         </button>
-        <button onClick={onToggleTheme} className="header-btn theme-toggle-btn" aria-label="Toggle theme">
+        <button onClick={onToggleTheme} className="header-btn theme-toggle-btn" title="Toggle theme">
           {isDarkMode ? Icons.Sun : Icons.Moon}
+          <span className="visually-hidden">Theme</span>
         </button>
+
         <button onClick={onLogout} className="header-btn">
-          {Icons.Logout} Logout
+          Logout
         </button>
       </div>
       
@@ -494,18 +496,16 @@ const NavSidebar = ({ isOpen, onClose, onLogout, isDarkMode, onToggleTheme, view
     </div>
     <div className="nav-group">
       <button onClick={() => onNavigate('create')} className={`header-btn nav-btn ${view === 'create' ? 'active' : ''}`}>
-        {Icons.Create} Create Story
+        Create
       </button>
       <button onClick={() => onNavigate('history')} className={`header-btn nav-btn ${view === 'history' ? 'active' : ''}`}>
-        {Icons.History} History
+        History
       </button>
-    </div>
-    <div className="nav-group" style={{ marginTop: 'auto' }}>
       <button onClick={onToggleTheme} className="header-btn nav-btn" aria-label="Toggle theme">
-        {isDarkMode ? Icons.Sun : Icons.Moon} {isDarkMode ? 'Light Mode' : 'Dark Mode'}
+        Theme
       </button>
       <button onClick={onLogout} className="header-btn nav-btn">
-        {Icons.Logout} Logout
+        Logout
       </button>
     </div>
   </aside>
@@ -566,7 +566,7 @@ const StoryForm = (props) => {
       <SidebarActions {...props} />
       <div className="story-form">
         <div className="form-sections">
-          <div className="form-section compulsory-section">
+          <div className="form-section">
             <h3>Required Details</h3>
             <div className="form-grid compact">
               {compulsoryFields.map(field => <FormField key={field.name} field={field} formState={props.formState} onChange={props.onChange} />)}
@@ -709,7 +709,7 @@ const HistoryView = ({ history, isLoading, onView, onDelete, onCreateNew }) => {
     return (
       <div className="centered-feedback">
         <div className="empty-state">
-          <h2>📚 No stories yet!</h2>
+          <h2>No stories yet!</h2>
           <p>Your created stories will appear here.</p>
           <button onClick={onCreateNew} className="btn-primary">{Icons.Create} Create Your First Story</button>
         </div>
