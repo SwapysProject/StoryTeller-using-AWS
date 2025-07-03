@@ -419,7 +419,6 @@ function Auth({ onLoginSuccess }) {
     <div className="auth-container">
       <div className="auth-header">
         <div className="auth-logo">
-          <div className="auth-logo-icon">🎭</div>
           <h1 className="auth-app-title">AI Storyteller</h1>
         </div>
         <h2>Welcome Back</h2>
@@ -494,7 +493,7 @@ function Auth({ onLoginSuccess }) {
     <div className="auth-container">
       <div className="auth-header">
         <div className="auth-logo">
-          <div className="auth-logo-icon">✨</div>
+        
           <h1 className="auth-app-title">AI Storyteller</h1>
         </div>
         <h2>Create Account</h2>

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
-
 // Professional icons using Unicode/Emoji
 const Icons = {
   History: '📚',
@@ -29,8 +28,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const INITIAL_FORM_STATE = {
   story_name: '',
   story_theme: '', // Main prompt - COMPULSORY
-  genre: 'Adventure',
-  length: 200,
+  genre: 'select',
+  length: 300,
   voice: 'Aditi',
   rate: 'medium',
   character_name: '',
@@ -214,7 +213,17 @@ function StorytellerApp({ user, onLogout }) {
   // --- EVENT HANDLERS ---
   const handleFormChange = (e) => {
     const { name, value, type } = e.target;
-    setFormState(prev => ({ ...prev, [name]: type === 'number' ? parseInt(value, 10) : value }));
+    if (name === 'length') {
+      let num = parseInt(value, 10);
+      if (isNaN(num)) num = '';
+      if (num !== '') {
+        if (num < 100) num = 100;
+        if (num > 800) num = 800;
+      }
+      setFormState(prev => ({ ...prev, [name]: num }));
+    } else {
+      setFormState(prev => ({ ...prev, [name]: type === 'number' ? parseInt(value, 10) : value }));
+    }
   };
   
   const handleCreateNew = () => {
@@ -245,23 +254,43 @@ function StorytellerApp({ user, onLogout }) {
     setMobileView('story');
   };
   
-  const handleGenerateStory = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError('');
-    stopAudioTracking();
-    try {
-      const data = await authenticatedFetch('/story', { method: 'POST', body: JSON.stringify(formState) });
-      const newStoryObject = { ...formState, title: formState.story_name, text: data.story, audio_url: data.audio_url, id: data.audio_url.split('/').pop().split('?')[0].replace('.mp3', '') };
-      setCurrentStory(newStoryObject);
-      fetchHistory();
-      setMobileView('story'); // Switch to story view on mobile after generation
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+const handleGenerateStory = async (e) => {
+  e.preventDefault();
+  if (!formState.genre || formState.genre === 'select') {
+    setError('Please select a genre.');
+    return;
+  }
+  setIsLoading(true);
+  setError('');
+  stopAudioTracking();
+
+  // Filter out empty optional fields before sending to backend
+  const filteredFormState = Object.fromEntries(
+    Object.entries(formState).filter(([key, value]) => value !== '')
+  );
+
+  try {
+    const data = await authenticatedFetch('/story', {
+      method: 'POST',
+      body: JSON.stringify(filteredFormState)
+    });
+    const newStoryObject = {
+      ...formState,
+      title: formState.story_name,
+      text: data.story,
+      audio_url: data.audio_url,
+      id: data.audio_url.split('/').pop().split('?')[0].replace('.mp3', '')
+    };
+    setCurrentStory(newStoryObject);
+    fetchHistory();
+    setMobileView('story'); // Switch to story view on mobile after generation
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
   
   const handleRegenerateAudio = async () => {
     if (!currentStory) return;
@@ -435,6 +464,7 @@ function StorytellerApp({ user, onLogout }) {
       </main>
 
       <Toast toast={toast} onClose={() => setToast(null)} />
+      <div className="mobile-bottom-buffer"></div>
     </div>
   );
 }
@@ -539,10 +569,19 @@ const StoryForm = (props) => {
   const compulsoryFields = [
     { name: 'story_name', label: 'Story Name', placeholder: 'The Lost City of Zym', required: true },
     { name: 'story_theme', label: 'Story Theme/Plot', type: 'textarea', required: true, placeholder: 'An explorer seeks a rare flower...' },
+    { name: 'genre', label: 'Genre', type: 'select', required: true, options: [
+      { value: 'select', label: 'Select genre' },
+      { value: 'Adventure', label: 'Adventure' },
+      { value: 'Romance', label: 'Romance' },
+      { value: 'Horror', label: 'Horror' },
+      { value: 'Mystery', label: 'Mystery' },
+      { value: 'Fantasy', label: 'Fantasy' },
+      { value: 'Sci-Fi', label: 'Sci-Fi' },
+      { value: 'Comedy', label: 'Comedy' }
+    ] },
   ];
   const basicFields = [
-    { name: 'genre', label: 'Genre', type: 'select', options: ['Adventure', 'Romance', 'Horror', 'Mystery', 'Fantasy', 'Sci-Fi', 'Comedy'] },
-    { name: 'length', label: 'Story Length (words)', type: 'number', min: 50, max: 500 },
+    { name: 'length', label: 'Story Length (words)', type: 'range', min: 100, max: 800, step: 10 },
     { name: 'voice', label: 'Narration Voice', type: 'select', options: [ { value: 'Aditi', label: 'Aditi (Female, Hindi)' }, { value: 'Kajal', label: 'Kajal (Female, Hindi)' }, { value: 'Raveena', label: 'Raveena (Female, Hindi)' }, { value: 'Joanna', label: 'Joanna (Female, US)' }, { value: 'Matthew', label: 'Matthew (Male, US)' } ] },
     { name: 'rate', label: 'Speech Rate', type: 'select', options: ['slow', 'medium', 'fast'] },
   ];
@@ -596,23 +635,67 @@ const StoryForm = (props) => {
   );
 };
 
-
 const FormField = ({ field, formState, onChange }) => (
   <div className="form-group">
     <label htmlFor={field.name}>
       {field.label}
       {field.required && <span className="required">*</span>}
     </label>
-    {field.type === 'select' ? (
-      <select name={field.name} id={field.name} value={formState[field.name]} onChange={onChange} required={field.required}>
-        {field.options.map(opt => 
-          typeof opt === 'object' ? (<option key={opt.value} value={opt.value}>{opt.label}</option>) : (<option key={opt} value={opt.toLowerCase()}>{opt}</option>)
+    {field.name === 'length' ? (
+      <div className="range-slider-wrapper">
+        <input
+          type="range"
+          name={field.name}
+          id={field.name}
+          min={field.min}
+          max={field.max}
+          step={field.step || 10}
+          value={formState[field.name]}
+          onChange={onChange}
+          className="length-slider"
+        />
+        <div className="slider-labels">
+          <span>{field.min}</span>
+          <span>{formState[field.name]} words</span>
+          <span>{field.max}</span>
+        </div>
+      </div>
+    ) : field.type === 'select' ? (
+      <select
+        name={field.name}
+        id={field.name}
+        value={formState[field.name]}
+        onChange={onChange}
+        required={field.required}
+      >
+        {field.options.map(opt =>
+          typeof opt === 'object'
+            ? <option key={opt.value} value={opt.value} disabled={opt.value === 'select'}>{opt.label}</option>
+            : <option key={opt} value={opt.toLowerCase()}>{opt}</option>
         )}
       </select>
     ) : field.type === 'textarea' ? (
-      <textarea name={field.name} id={field.name} value={formState[field.name]} onChange={onChange} required={field.required} placeholder={field.placeholder} rows="3" />
+      <textarea
+        name={field.name}
+        id={field.name}
+        value={formState[field.name]}
+        onChange={onChange}
+        required={field.required}
+        placeholder={field.placeholder}
+        rows="3"
+      />
     ) : (
-      <input type={field.type || 'text'} name={field.name} id={field.name} value={formState[field.name]} onChange={onChange} required={field.required} placeholder={field.placeholder} min={field.min} max={field.max} />
+      <input
+        type={field.type || 'text'}
+        name={field.name}
+        id={field.name}
+        value={formState[field.name]}
+        onChange={onChange}
+        required={field.required}
+        placeholder={field.placeholder}
+        min={field.min}
+        max={field.max}
+      />
     )}
   </div>
 );
