@@ -1,787 +1,580 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { CognitoUserPool, CognitoUser, AuthenticationDetails, CognitoUserAttribute } from 'amazon-cognito-identity-js';
 
-
 // --- Cognito Configuration ---
 const poolData = {
   UserPoolId: import.meta.env.VITE_USER_POOL_ID,
   ClientId: import.meta.env.VITE_APP_CLIENT_ID
 };
-
 const userPool = new CognitoUserPool(poolData);
 
 // Password validation regex
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&.#])[A-Za-z\d@$!%*?&.#]{8,}$/;
 
 // Validation helper functions
 const validateEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
-
 const validatePassword = (password) => {
   return PASSWORD_REGEX.test(password);
 };
 
-const validateUsername = (username) => {
-  return username.length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
-};
-
 // --- Enhanced InputField Component ---
-const InputField = React.forwardRef(({
-  type = 'text',
-  name,
-  value,
-  onChange,
-  placeholder,
-  required = false,
-  readOnly = false,
-  showToggle = false,
-  isPasswordVisible,
-  onToggleVisibility,
-  icon = null,
-  error = ''
-}, ref) => (
-  <div className="auth-input-group">
-    <div className={`auth-input-wrapper ${error ? 'error' : ''} ${readOnly ? 'readonly' : ''}`}>
-      {icon && <div className="auth-input-icon">{icon}</div>}
-      <input
-        ref={ref}
-        type={showToggle && isPasswordVisible ? 'text' : type}
-        name={name}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        required={required}
-        readOnly={readOnly}
-        className={`auth-input ${icon ? 'with-icon' : ''}`}
-        aria-invalid={!!error}
-        aria-describedby={error ? `${name}-error` : undefined}
-      />
-      {showToggle && (
-        <button
-          type="button"
-          className="auth-password-toggle"
-          onClick={onToggleVisibility}
-          aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
-        >
-          {isPasswordVisible ? '👁️' : '👁️‍🗨️'}
-        </button>
-      )}
+const InputField = React.forwardRef(
+  (
+    {
+      type = 'text',
+      name,
+      value,
+      onChange,
+      placeholder,
+      required = false,
+      readOnly = false,
+      showToggle = false,
+      isPasswordVisible,
+      onToggleVisibility,
+      icon = null,
+      error = ''
+    },
+    ref
+  ) => (
+    <div className="auth-input-group">
+      <div className={`auth-input-wrapper${error ? ' error' : ''}${readOnly ? ' readonly' : ''}`}>
+        {icon && <span className="auth-input-icon">{icon}</span>}
+        <input
+          ref={ref}
+          className={`auth-input${icon ? ' with-icon' : ''}`}
+          type={showToggle && isPasswordVisible ? 'text' : type}
+          name={name}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          required={required}
+          readOnly={readOnly}
+          autoComplete={name}
+        />
+        {showToggle && (
+          <button
+            type="button"
+            className="auth-password-toggle"
+            onClick={onToggleVisibility}
+            tabIndex={-1}
+            aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
+          >
+            {isPasswordVisible ? '🙈' : '👁️'}
+          </button>
+        )}
+      </div>
+      {error && <div className="auth-error-text">{error}</div>}
     </div>
-    {error && (
-      <span id={`${name}-error`} className="auth-error-text" role="alert">
-        {error}
-      </span>
-    )}
-  </div>
-));
+  )
+);
 
+// --- Main Auth Component ---
 function Auth({ onLoginSuccess }) {
-  // State management
-  const [formData, setFormData] = useState({
-    username: '',
-    password: '',
-    email: '',
-    verificationCode: '',
-    resetCode: '',
-    newPassword: '',
-    confirmPassword: ''
-  });
-
+  // UI state
   const [uiState, setUiState] = useState({
-    currentView: 'login', // 'login', 'signup', 'verification', 'forgotPassword'
-    isLoading: false,
-    resetCodeSent: false,
-    showPassword: false,
-    showNewPassword: false,
-    showConfirmPassword: false
+    mode: 'login', // 'login' | 'signup' | 'reset' | 'verify'
+    resetCodeSent: false
   });
 
-  const [errors, setErrors] = useState({});
-  const [authError, setAuthError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  // Form state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+
+  // Error/success state
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Password visibility
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isNewPasswordVisible, setIsNewPasswordVisible] = useState(false);
+
+  // Verification state
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+  const [pendingVerificationPassword, setPendingVerificationPassword] = useState('');
 
   // Refs for focus management
-  const focusRef = useRef(null);
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
 
-  // Focus management
   useEffect(() => {
-    if (focusRef.current) {
-      setTimeout(() => focusRef.current.focus(), 100);
-    }
-  }, [uiState.currentView]);
+    setError('');
+    setSuccess('');
+    setPassword('');
+    setIsPasswordVisible(false);
+    setIsNewPasswordVisible(false);
+    setVerificationCode('');
+    setNewPassword('');
+    if (uiState.mode === 'login' && emailRef.current) emailRef.current.focus();
+    if (uiState.mode === 'signup' && emailRef.current) emailRef.current.focus();
+  }, [uiState.mode]);
 
-  // Clear messages when switching views
-  useEffect(() => {
-    setAuthError('');
-    setSuccessMessage('');
-    setErrors({});
-  }, [uiState.currentView]);
-
-  // Generic form data handler
-  const handleInputChange = useCallback((e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-
-    // Clear field-specific error when user starts typing
-    if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }));
-    }
-
-    // Clear general auth error
-    if (authError) {
-      setAuthError('');
-    }
-  }, [errors, authError]);
-
-  // Password visibility toggle handler
-  const handleToggleVisibility = (field) => {
-    setUiState(prev => ({ ...prev, [field]: !prev[field] }));
-  };
-
-  // Validation function
-  const validateForm = useCallback((view) => {
-    const newErrors = {};
-
-    switch (view) {
-      case 'login':
-        if (!formData.username.trim()) {
-          newErrors.username = 'Username is required';
-        }
-        if (!formData.password) {
-          newErrors.password = 'Password is required';
-        }
-        break;
-
-      case 'signup':
-        if (!validateUsername(formData.username)) {
-          newErrors.username = 'Username must be at least 3 characters and contain only letters, numbers, and underscores';
-        }
-        if (!validateEmail(formData.email)) {
-          newErrors.email = 'Please enter a valid email address';
-        }
-        if (!validatePassword(formData.password)) {
-          newErrors.password = 'Password must be at least 8 characters with uppercase, lowercase, number, and special character';
-        }
-        if (formData.password !== formData.confirmPassword) {
-          newErrors.confirmPassword = 'Passwords do not match';
-        }
-        break;
-
-      case 'verification':
-        if (!formData.verificationCode.trim()) {
-          newErrors.verificationCode = 'Verification code is required';
-        }
-        break;
-
-      case 'resetPassword':
-        if (!formData.resetCode.trim()) {
-          newErrors.resetCode = 'Reset code is required';
-        }
-        if (!validatePassword(formData.newPassword)) {
-          newErrors.newPassword = 'Password must be at least 8 characters with uppercase, lowercase, number, and special character';
-        }
-        break;
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  }, [formData]);
-
-  // Set loading state helper
-  const setLoading = useCallback((loading) => {
-    setUiState(prev => ({ ...prev, isLoading: loading }));
-  }, []);
-
-  // Authentication handlers
-  const handleLogin = useCallback(async (e) => {
-    e.preventDefault();
-
-    if (!validateForm('login')) return;
-
-    setLoading(true);
-    setAuthError('');
-
-    try {
-      const authDetails = new AuthenticationDetails({
-        Username: formData.username.trim(),
-        Password: formData.password
+  // --- Handlers ---
+  const handleLogin = useCallback(
+    (e) => {
+      e.preventDefault();
+      setError('');
+      setSuccess('');
+      if (!validateEmail(email)) {
+        setError('Please enter a valid email address.');
+        return;
+      }
+      if (!validatePassword(password)) {
+        setError(
+          'Password must be at least 8 characters, include uppercase, lowercase, number, and special character.'
+        );
+        return;
+      }
+      setLoading(true);
+      const authenticationDetails = new AuthenticationDetails({
+        Username: email,
+        Password: password
       });
-
       const cognitoUser = new CognitoUser({
-        Username: formData.username.trim(),
+        Username: email,
         Pool: userPool
       });
-
-      cognitoUser.authenticateUser(authDetails, {
+      cognitoUser.authenticateUser(authenticationDetails, {
         onSuccess: (result) => {
-          setSuccessMessage('Login successful!');
-          setTimeout(() => onLoginSuccess(cognitoUser), 500);
+          setLoading(false);
+          setSuccess('Login successful!');
+          onLoginSuccess && onLoginSuccess(cognitoUser);
         },
         onFailure: (err) => {
           setLoading(false);
-          if (err.code === 'UserNotConfirmedException') {
-            setUiState(prev => ({ ...prev, currentView: 'verification' }));
-            setAuthError('Please verify your account. A new verification code will be sent.');
-            handleResendCode();
+          if (
+            err.code === 'UserNotConfirmedException' ||
+            (err.message && err.message.toLowerCase().includes('not confirmed'))
+          ) {
+            setPendingVerificationEmail(email);
+            setPendingVerificationPassword(password);
+            setUiState({ mode: 'verify' });
+            setSuccess('Your account is not verified. Please enter the verification code sent to your email.');
+            resendVerificationCode(email);
           } else {
-            setAuthError(err.message || 'Login failed. Please try again.');
+            setError(err.message || 'Login failed.');
           }
         }
       });
-    } catch (error) {
-      setLoading(false);
-      setAuthError('An unexpected error occurred. Please try again.');
-    }
-  }, [formData, validateForm, onLoginSuccess]);
+    },
+    [email, password, onLoginSuccess]
+  );
 
-  const handleSignup = useCallback(async (e) => {
-    e.preventDefault();
-
-    if (!validateForm('signup')) return;
-
-    setLoading(true);
-    setAuthError('');
-
-    try {
-      const attributeList = [
-        new CognitoUserAttribute({
-          Name: 'email',
-          Value: formData.email.trim().toLowerCase()
-        })
-      ];
-
+  const handleSignUp = useCallback(
+    (e) => {
+      e.preventDefault();
+      setError('');
+      setSuccess('');
+      if (!validateEmail(email)) {
+        setError('Please enter a valid email address.');
+        return;
+      }
+      if (!validatePassword(password)) {
+        setError(
+          'Password must be at least 8 characters, include uppercase, lowercase, number, and special character.'
+        );
+        return;
+      }
+      setLoading(true);
       userPool.signUp(
-        formData.username.trim(),
-        formData.password,
-        attributeList,
+        email,
+        password,
+        [new CognitoUserAttribute({ Name: 'email', Value: email })],
         null,
         (err, result) => {
           setLoading(false);
           if (err) {
-            setAuthError(err.message || 'Signup failed. Please try again.');
+            if (
+              err.code === 'UsernameExistsException' ||
+              (err.message && err.message.toLowerCase().includes('already exists'))
+            ) {
+              setPendingVerificationEmail(email);
+              setPendingVerificationPassword(password);
+              setUiState({ mode: 'verify' });
+              setSuccess('Account already exists but is not verified. Please enter the verification code sent to your email.');
+              resendVerificationCode(email);
+            } else {
+              setError(err.message || 'Sign up failed.');
+            }
             return;
           }
-
-          setSuccessMessage('Account created successfully! Please check your email for verification code.');
-          setUiState(prev => ({ ...prev, currentView: 'verification' }));
+          setPendingVerificationEmail(email);
+          setPendingVerificationPassword(password);
+          setUiState({ mode: 'verify' });
+          setSuccess('Sign up successful! Please enter the verification code sent to your email.');
         }
       );
-    } catch (error) {
-      setLoading(false);
-      setAuthError('An unexpected error occurred. Please try again.');
-    }
-  }, [formData, validateForm]);
+    },
+    [email, password]
+  );
 
-  const handleVerification = useCallback(async (e) => {
-    e.preventDefault();
-
-    if (!validateForm('verification')) return;
-
-    setLoading(true);
-    setAuthError('');
-
-    try {
-      const cognitoUser = new CognitoUser({
-        Username: formData.username.trim(),
-        Pool: userPool
-      });
-
-      cognitoUser.confirmRegistration(formData.verificationCode.trim(), true, (err) => {
-        setLoading(false);
-        if (err) {
-          setAuthError(err.message || 'Verification failed. Please try again.');
-          return;
-        }
-
-        setSuccessMessage('Account verified successfully! You can now log in.');
-        setTimeout(() => {
-          setUiState(prev => ({ ...prev, currentView: 'login' }));
-          setFormData(prev => ({ ...prev, verificationCode: '', password: '' }));
-        }, 2000);
-      });
-    } catch (error) {
-      setLoading(false);
-      setAuthError('An unexpected error occurred. Please try again.');
-    }
-  }, [formData, validateForm]);
-
-  const handleResendCode = useCallback(() => {
-    if (!formData.username.trim()) {
-      setAuthError('Username is required to resend code');
-      return;
-    }
-
-    setAuthError('');
-    const cognitoUser = new CognitoUser({
-      Username: formData.username.trim(),
-      Pool: userPool
-    });
-
-    cognitoUser.resendConfirmationCode((err) => {
-      if (err) {
-        setAuthError(err.message || 'Failed to resend code. Please try again.');
+  const handleVerifyCode = useCallback(
+    (e) => {
+      e.preventDefault();
+      setError('');
+      setSuccess('');
+      if (!pendingVerificationEmail || !verificationCode) {
+        setError('Please enter the verification code sent to your email.');
         return;
       }
-      setSuccessMessage('A new verification code has been sent to your email.');
-    });
-  }, [formData.username]);
-
-  const handleForgotPasswordRequest = useCallback(async (e) => {
-    e.preventDefault();
-
-    if (!formData.username.trim()) {
-      setErrors({ username: 'Username is required' });
-      return;
-    }
-
-    setLoading(true);
-    setAuthError('');
-
-    try {
+      setLoading(true);
       const cognitoUser = new CognitoUser({
-        Username: formData.username.trim(),
+        Username: pendingVerificationEmail,
         Pool: userPool
       });
+      cognitoUser.confirmRegistration(verificationCode, true, (err, result) => {
+        setLoading(false);
+        if (err) {
+          setError(err.message || 'Verification failed.');
+          return;
+        }
+        setSuccess('Verification successful! You can now log in.');
+        setUiState({ mode: 'login', resetCodeSent: false });
+        setEmail(pendingVerificationEmail);
+        setPassword(pendingVerificationPassword);
+        setPendingVerificationEmail('');
+        setPendingVerificationPassword('');
+        setVerificationCode('');
+      });
+    },
+    [pendingVerificationEmail, verificationCode, pendingVerificationPassword]
+  );
 
+  const resendVerificationCode = useCallback(
+    (emailToResend) => {
+      if (!emailToResend) {
+        setError('No email to resend code to.');
+        return;
+      }
+      setLoading(true);
+      const cognitoUser = new CognitoUser({
+        Username: emailToResend,
+        Pool: userPool
+      });
+      cognitoUser.resendConfirmationCode((err, result) => {
+        setLoading(false);
+        if (err) {
+          setError(err.message || 'Failed to resend verification code.');
+        } else {
+          setSuccess('Verification code resent. Please check your email.');
+        }
+      });
+    },
+    []
+  );
+
+  const handleForgotPassword = useCallback(
+    (e) => {
+      e.preventDefault();
+      setError('');
+      setSuccess('');
+      if (!validateEmail(email)) {
+        setError('Please enter your registered email address.');
+        return;
+      }
+      setLoading(true);
+      const cognitoUser = new CognitoUser({
+        Username: email,
+        Pool: userPool
+      });
       cognitoUser.forgotPassword({
         onSuccess: () => {
           setLoading(false);
-          setSuccessMessage('Reset code sent to your email.');
-          setUiState(prev => ({ ...prev, resetCodeSent: true }));
+          setSuccess('A verification code has been sent to your email.');
+          setUiState({ ...uiState, resetCodeSent: true });
         },
         onFailure: (err) => {
           setLoading(false);
-          setAuthError(err.message || 'Failed to send reset code. Please try again.');
+          setError(err.message || 'Failed to send reset code.');
         }
       });
-    } catch (error) {
-      setLoading(false);
-      setAuthError('An unexpected error occurred. Please try again.');
-    }
-  }, [formData.username]);
+    },
+    [email, uiState]
+  );
 
-  const handleResetPasswordSubmit = useCallback(async (e) => {
-    e.preventDefault();
-
-    if (!validateForm('resetPassword')) return;
-
-    setLoading(true);
-    setAuthError('');
-
-    try {
+  const handleResetPassword = useCallback(
+    (e) => {
+      e.preventDefault();
+      setError('');
+      setSuccess('');
+      if (!validateEmail(email)) {
+        setError('Please enter your registered email address.');
+        return;
+      }
+      if (!verificationCode) {
+        setError('Please enter the verification code sent to your email.');
+        return;
+      }
+      if (!validatePassword(newPassword)) {
+        setError(
+          'New password must be at least 8 characters, include uppercase, lowercase, number, and special character.'
+        );
+        return;
+      }
+      setLoading(true);
       const cognitoUser = new CognitoUser({
-        Username: formData.username.trim(),
+        Username: email,
         Pool: userPool
       });
-
-      cognitoUser.confirmPassword(formData.resetCode.trim(), formData.newPassword, {
+      cognitoUser.confirmPassword(verificationCode, newPassword, {
         onSuccess: () => {
           setLoading(false);
-          setSuccessMessage('Password reset successfully! You can now log in.');
-          setTimeout(() => {
-            setUiState(prev => ({
-              ...prev,
-              currentView: 'login',
-              resetCodeSent: false
-            }));
-            setFormData(prev => ({
-              ...prev,
-              resetCode: '',
-              newPassword: '',
-              password: ''
-            }));
-          }, 2000);
+          setSuccess('Password reset successful! You can now log in.');
+          setUiState({ mode: 'login', resetCodeSent: false });
         },
         onFailure: (err) => {
           setLoading(false);
-          setAuthError(err.message || 'Password reset failed. Please try again.');
+          setError(err.message || 'Failed to reset password.');
         }
       });
-    } catch (error) {
-      setLoading(false);
-      setAuthError('An unexpected error occurred. Please try again.');
-    }
-  }, [formData, validateForm]);
-
-  // View switching helpers
-  const switchView = useCallback((view, additionalState = {}) => {
-    setUiState(prev => ({
-      ...prev,
-      currentView: view,
-      ...additionalState
-    }));
-  }, []);
-
-  // Render functions
-  const renderLoginForm = () => (
-    <div className="auth-container">
-      <div className="auth-header">
-        <div className="auth-logo">
-          <h1 className="auth-app-title">AI Storyteller</h1>
-        </div>
-        <h2>Welcome Back</h2>
-        <p>Sign in to continue your storytelling journey</p>
-      </div>
-
-      <form onSubmit={handleLogin} className="auth-form" noValidate>
-        <InputField
-          ref={focusRef}
-          name="username"
-          placeholder="Username"
-          value={formData.username}
-          onChange={handleInputChange}
-          error={errors.username}
-          required
-          icon="👤"
-        />
-
-        <InputField
-          type="password"
-          name="password"
-          placeholder="Password"
-          value={formData.password}
-          onChange={handleInputChange}
-          error={errors.password}
-          required
-          showToggle
-          isPasswordVisible={uiState.showPassword}
-          onToggleVisibility={() => handleToggleVisibility('showPassword')}
-          icon="🔒"
-        />
-
-        <button
-          type="submit"
-          className={`auth-submit-button ${uiState.isLoading ? 'loading' : ''}`}
-          disabled={uiState.isLoading}
-        >
-          {uiState.isLoading ? (
-            <>
-              <span className="auth-spinner"></span>
-              Signing in...
-            </>
-          ) : (
-            'Sign In'
-          )}
-        </button>
-      </form>
-
-      <div className="auth-links">
-        <button
-          className="auth-link-button"
-          onClick={() => switchView('forgotPassword')}
-          disabled={uiState.isLoading}
-        >
-          Forgot Password?
-        </button>
-        <div className="auth-divider">
-          <span>or</span>
-        </div>
-        <button
-          className="auth-link-button secondary"
-          onClick={() => switchView('signup')}
-          disabled={uiState.isLoading}
-        >
-          Create New Account
-        </button>
-      </div>
-    </div>
+    },
+    [email, verificationCode, newPassword]
   );
 
-  const renderSignupForm = () => (
-    <div className="auth-container">
-      <div className="auth-header">
-        <div className="auth-logo">
-        
-          <h1 className="auth-app-title">AI Storyteller</h1>
-        </div>
-        <h2>Create Account</h2>
-        <p>Join our storytelling community</p>
-      </div>
-
-      <form onSubmit={handleSignup} className="auth-form" noValidate>
-        <InputField
-          ref={focusRef}
-          name="username"
-          placeholder="Username"
-          value={formData.username}
-          onChange={handleInputChange}
-          error={errors.username}
-          required
-          icon="👤"
-        />
-
-        <InputField
-          type="email"
-          name="email"
-          placeholder="Email Address"
-          value={formData.email}
-          onChange={handleInputChange}
-          error={errors.email}
-          required
-          icon="📧"
-        />
-
-        <InputField
-          type="password"
-          name="password"
-          placeholder="Password"
-          value={formData.password}
-          onChange={handleInputChange}
-          error={errors.password}
-          required
-          showToggle
-          isPasswordVisible={uiState.showPassword}
-          onToggleVisibility={() => handleToggleVisibility('showPassword')}
-          icon="🔒"
-        />
-
-        <InputField
-          type="password"
-          name="confirmPassword"
-          placeholder="Confirm Password"
-          value={formData.confirmPassword}
-          onChange={handleInputChange}
-          error={errors.confirmPassword}
-          required
-          showToggle
-          isPasswordVisible={uiState.showConfirmPassword}
-          onToggleVisibility={() => handleToggleVisibility('showConfirmPassword')}
-          icon="🔒"
-        />
-
-        <div className="auth-password-requirements">
-          <small>
-            Password must contain at least 8 characters with uppercase, lowercase, number, and special character.
-          </small>
-        </div>
-
-        <button
-          type="submit"
-          className={`auth-submit-button ${uiState.isLoading ? 'loading' : ''}`}
-          disabled={uiState.isLoading}
-        >
-          {uiState.isLoading ? (
-            <>
-              <span className="auth-spinner"></span>
-              Creating Account...
-            </>
-          ) : (
-            'Create Account'
-          )}
-        </button>
-      </form>
-
-      <div className="auth-links">
-        <span>Already have an account? </span>
-        <button
-          className="auth-link-button"
-          onClick={() => switchView('login')}
-          disabled={uiState.isLoading}
-        >
-          Sign In
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderVerificationForm = () => (
-    <div className="auth-container">
-      <div className="auth-header">
-        <div className="auth-logo">
-          <div className="auth-logo-icon">📧</div>
-          <h1 className="auth-app-title">AI Storyteller</h1>
-        </div>
-        <h2>Verify Your Account</h2>
-        <p>We've sent a verification code to your email</p>
-      </div>
-
-      <form onSubmit={handleVerification} className="auth-form" noValidate>
-        <InputField
-          name="username"
-          placeholder="Username"
-          value={formData.username}
-          readOnly
-          icon="👤"
-        />
-
-        <InputField
-          ref={focusRef}
-          name="verificationCode"
-          placeholder="Enter 6-digit code"
-          value={formData.verificationCode}
-          onChange={handleInputChange}
-          error={errors.verificationCode}
-          required
-          icon="🔢"
-        />
-
-        <button
-          type="submit"
-          className={`auth-submit-button ${uiState.isLoading ? 'loading' : ''}`}
-          disabled={uiState.isLoading}
-        >
-          {uiState.isLoading ? (
-            <>
-              <span className="auth-spinner"></span>
-              Verifying...
-            </>
-          ) : (
-            'Verify Account'
-          )}
-        </button>
-      </form>
-
-      <div className="auth-links">
-        <span>Didn't receive the code? </span>
-        <button
-          className="auth-link-button"
-          onClick={handleResendCode}
-          disabled={uiState.isLoading}
-        >
-          Resend Code
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderForgotPasswordForm = () => (
-    <div className="auth-container">
-      <div className="auth-header">
-        <div className="auth-logo">
-          <div className="auth-logo-icon">🔑</div>
-          <h1 className="auth-app-title">AI Storyteller</h1>
-        </div>
-        <h2>Reset Password</h2>
-        <p>
-          {!uiState.resetCodeSent
-            ? 'Enter your username to receive a reset code'
-            : 'Enter the code and your new password'
-          }
-        </p>
-      </div>
-
-      {!uiState.resetCodeSent ? (
-        <form onSubmit={handleForgotPasswordRequest} className="auth-form" noValidate>
-          <InputField
-            ref={focusRef}
-            name="username"
-            placeholder="Username"
-            value={formData.username}
-            onChange={handleInputChange}
-            error={errors.username}
-            required
-            icon="👤"
-          />
-
-          <button
-            type="submit"
-            className={`auth-submit-button ${uiState.isLoading ? 'loading' : ''}`}
-            disabled={uiState.isLoading}
-          >
-            {uiState.isLoading ? (
-              <>
-                <span className="auth-spinner"></span>
-                Sending Code...
-              </>
-            ) : (
-              'Send Reset Code'
-            )}
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={handleResetPasswordSubmit} className="auth-form" noValidate>
-          <InputField
-            name="username"
-            placeholder="Username"
-            value={formData.username}
-            readOnly
-            icon="👤"
-          />
-
-          <InputField
-            ref={focusRef}
-            name="resetCode"
-            placeholder="Reset Code"
-            value={formData.resetCode}
-            onChange={handleInputChange}
-            error={errors.resetCode}
-            required
-            icon="🔢"
-          />
-
-          <InputField
-            type="password"
-            name="newPassword"
-            placeholder="New Password"
-            value={formData.newPassword}
-            onChange={handleInputChange}
-            error={errors.newPassword}
-            required
-            showToggle
-            isPasswordVisible={uiState.showNewPassword}
-            onToggleVisibility={() => handleToggleVisibility('showNewPassword')}
-            icon="🔒"
-          />
-
-          <button
-            type="submit"
-            className={`auth-submit-button ${uiState.isLoading ? 'loading' : ''}`}
-            disabled={uiState.isLoading}
-          >
-            {uiState.isLoading ? (
-              <>
-                <span className="auth-spinner"></span>
-                Resetting...
-              </>
-            ) : (
-              'Reset Password'
-            )}
-          </button>
-        </form>
-      )}
-
-      <div className="auth-links">
-        <button
-          className="auth-link-button"
-          onClick={() => switchView('login', { resetCodeSent: false })}
-          disabled={uiState.isLoading}
-        >
-          ← Back to Sign In
-        </button>
-      </div>
-    </div>
-  );
-
-  // Main render
+  // --- UI Render ---
   return (
     <div className="auth-wrapper">
-      <div className="auth-background">
-        <div className="auth-background-pattern"></div>
-        <div className="auth-background-overlay"></div>
-      </div>
-
       <div className="auth-content">
-        {successMessage && (
-          <div className="auth-success-message" role="alert">
-            <span className="auth-success-icon">✅</span>
-            {successMessage}
-          </div>
-        )}
+        <div className="auth-form-container">
+          <div className="auth-container">
+            <div className="auth-header">
+              <div className="auth-logo">
+                <span className="auth-logo-icon">✨</span>
+                <span className="auth-app-title">Storyteller</span>
+              </div>
+              <h2>
+                {uiState.mode === 'login'
+                  ? 'Sign in to continue your storytelling journey'
+                  : uiState.mode === 'signup'
+                  ? 'Join our storytelling community'
+                  : uiState.mode === 'verify'
+                  ? 'Verify your email'
+                  : 'Reset your password'}
+              </h2>
+              <p>
+                {uiState.mode === 'login'
+                  ? 'Welcome back! Please log in to your account.'
+                  : uiState.mode === 'signup'
+                  ? 'Create an account to start generating stories.'
+                  : uiState.mode === 'verify'
+                  ? 'Enter the verification code sent to your email.'
+                  : uiState.resetCodeSent
+                  ? "We've sent a verification code to your email"
+                  : 'Enter your email to receive a reset code'}
+              </p>
+            </div>
 
-        {authError && (
-          <div className="auth-error-message" role="alert">
-            <span className="auth-error-icon">⚠️</span>
-            {authError}
-          </div>
-        )}
+            {error && <div className="auth-error-message"><span className="auth-error-icon">⚠️</span>{error}</div>}
+            {success && <div className="auth-success-message"><span className="auth-success-icon">✅</span>{success}</div>}
 
-        <div className={`auth-form-container ${uiState.currentView}`}>
-          {uiState.currentView === 'login' && renderLoginForm()}
-          {uiState.currentView === 'signup' && renderSignupForm()}
-          {uiState.currentView === 'verification' && renderVerificationForm()}
-          {uiState.currentView === 'forgotPassword' && renderForgotPasswordForm()}
+            {uiState.mode === 'login' && (
+              <form className="auth-form" onSubmit={handleLogin} autoComplete="on">
+                <InputField
+                  ref={emailRef}
+                  type="email"
+                  name="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="Email"
+                  required
+                  icon="📧"
+                  error=""
+                />
+                <InputField
+                  ref={passwordRef}
+                  type="password"
+                  name="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Password"
+                  required
+                  icon="🔒"
+                  showToggle
+                  isPasswordVisible={isPasswordVisible}
+                  onToggleVisibility={() => setIsPasswordVisible(v => !v)}
+                  error=""
+                />
+                <button
+                  className={`auth-submit-button${loading ? ' loading' : ''}`}
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? <span className="auth-spinner" /> : 'Sign In'}
+                </button>
+              </form>
+            )}
+
+            {uiState.mode === 'signup' && (
+              <form className="auth-form" onSubmit={handleSignUp} autoComplete="on">
+                <InputField
+                  ref={emailRef}
+                  type="email"
+                  name="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="Email"
+                  required
+                  icon="📧"
+                  error=""
+                />
+                <InputField
+                  ref={passwordRef}
+                  type="password"
+                  name="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Password"
+                  required
+                  icon="🔒"
+                  showToggle
+                  isPasswordVisible={isPasswordVisible}
+                  onToggleVisibility={() => setIsPasswordVisible(v => !v)}
+                  error=""
+                />
+                <div className="auth-password-requirements">
+                  <small>
+                    Password must be at least 8 characters, include uppercase, lowercase, number, and special character.
+                  </small>
+                </div>
+                <button
+                  className={`auth-submit-button${loading ? ' loading' : ''}`}
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? <span className="auth-spinner" /> : 'Sign Up'}
+                </button>
+              </form>
+            )}
+
+            {uiState.mode === 'verify' && (
+              <form className="auth-form" onSubmit={handleVerifyCode} autoComplete="on">
+                <InputField
+                  type="text"
+                  name="verificationCode"
+                  value={verificationCode}
+                  onChange={e => setVerificationCode(e.target.value)}
+                  placeholder="Verification Code"
+                  required
+                  icon="🔑"
+                  error=""
+                />
+                <button
+                  className={`auth-submit-button${loading ? ' loading' : ''}`}
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? <span className="auth-spinner" /> : 'Verify'}
+                </button>
+                <button
+                  className="auth-link-button secondary"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => resendVerificationCode(pendingVerificationEmail)}
+                  style={{ marginTop: '1rem' }}
+                >
+                  Resend Code
+                </button>
+              </form>
+            )}
+
+            {uiState.mode === 'reset' && (
+              <form
+                className="auth-form"
+                onSubmit={uiState.resetCodeSent ? handleResetPassword : handleForgotPassword}
+                autoComplete="on"
+              >
+                <InputField
+                  ref={emailRef}
+                  type="email"
+                  name="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="Email"
+                  required
+                  icon="📧"
+                  error=""
+                  readOnly={uiState.resetCodeSent}
+                />
+                {uiState.resetCodeSent && (
+                  <>
+                    <InputField
+                      type="text"
+                      name="verificationCode"
+                      value={verificationCode}
+                      onChange={e => setVerificationCode(e.target.value)}
+                      placeholder="Verification Code"
+                      required
+                      icon="🔑"
+                      error=""
+                    />
+                    <InputField
+                      type="password"
+                      name="newPassword"
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="New Password"
+                      required
+                      icon="🔒"
+                      showToggle
+                      isPasswordVisible={isNewPasswordVisible}
+                      onToggleVisibility={() => setIsNewPasswordVisible(v => !v)}
+                      error=""
+                    />
+                    <div className="auth-password-requirements">
+                      <small>
+                        New password must be at least 8 characters, include uppercase, lowercase, number, and special character.
+                      </small>
+                    </div>
+                  </>
+                )}
+                <button
+                  className={`auth-submit-button${loading ? ' loading' : ''}`}
+                  type="submit"
+                  disabled={loading}
+                >
+                  {loading ? <span className="auth-spinner" /> : uiState.resetCodeSent ? 'Reset Password' : 'Send Code'}
+                </button>
+              </form>
+            )}
+
+            <div className="auth-links">
+              {uiState.mode !== 'login' && (
+                <button
+                  className="auth-link-button"
+                  type="button"
+                  onClick={() => setUiState({ mode: 'login', resetCodeSent: false })}
+                  disabled={loading}
+                >
+                  Already have an account? Sign In
+                </button>
+              )}
+              {uiState.mode !== 'signup' && (
+                <button
+                  className="auth-link-button"
+                  type="button"
+                  onClick={() => setUiState({ mode: 'signup', resetCodeSent: false })}
+                  disabled={loading}
+                >
+                  New here? Sign Up
+                </button>
+              )}
+              {uiState.mode !== 'reset' && (
+                <button
+                  className="auth-link-button secondary"
+                  type="button"
+                  onClick={() => setUiState({ mode: 'reset', resetCodeSent: false })}
+                  disabled={loading}
+                >
+                  Forgot Password?
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

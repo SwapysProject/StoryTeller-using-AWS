@@ -1878,3 +1878,78 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-size: var(--font-size-xs);
   color: var(--text-muted);
 }
+
+
+.profile-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.3);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-modal {
+  background: var(--bg-secondary, #fff);
+  color: var(--text-primary, #000);
+  border-radius: 1rem;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  padding: 2rem 1.5rem;
+  min-width: 280px;
+  max-width: 90vw;
+  width: 100%;
+  max-width: 350px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: relative;
+}
+
+.profile-info-row {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 1rem;
+}
+
+.profile-label {
+  font-weight: 600;
+  color: var(--text-secondary, #555);
+}
+
+.profile-value {
+  word-break: break-all;
+}
+
+.profile-logout-btn {
+  background: var(--error-color, #ef4444);
+  color: var(--text-inverse, #fff);
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1.2rem;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 0.5rem;
+}
+
+.profile-close-btn {
+  align-self: flex-end;
+  background: var(--primary-color, #000);
+  color: var(--text-inverse, #fff);
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1.2rem;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+
+@media (max-width: 480px) {
+  .profile-modal {
+    padding: 1.2rem 0.5rem;
+    min-width: 0;
+    max-width: 95vw;
+  }
+}

@@ -27,7 +27,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const INITIAL_FORM_STATE = {
   story_name: '',
-  story_theme: '', // Main prompt - COMPULSORY
+  story_theme: '',
   genre: 'select',
   length: 300,
   voice: 'Aditi',
@@ -52,7 +52,7 @@ function StorytellerApp({ user, onLogout }) {
   const [view, setView] = useState('create');
   const [formState, setFormState] = useState(INITIAL_FORM_STATE);
   const [currentStory, setCurrentStory] = useState(null);
-  
+
   // App status states
   const [isLoading, setIsLoading] = useState(false);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
@@ -82,6 +82,22 @@ function StorytellerApp({ user, onLogout }) {
   // Toast notification state
   const [toast, setToast] = useState(null);
 
+  // Profile modal state
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+
+  const [userEmail, setUserEmail] = useState('');
+
+useEffect(() => {
+  if (user && typeof user.getUserAttributes === 'function') {
+    user.getUserAttributes((err, attributes) => {
+      if (!err && attributes) {
+        const emailAttr = attributes.find(attr => attr.Name === 'email');
+        if (emailAttr) setUserEmail(emailAttr.Value);
+      }
+    });
+  }
+}, [user]);
+
   // Refs
   const audioRef = useRef(null);
   const progressIntervalRef = useRef(null);
@@ -91,7 +107,7 @@ function StorytellerApp({ user, onLogout }) {
     document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
     localStorage.setItem('storyteller-theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
-  
+
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', handleResize);
@@ -122,9 +138,8 @@ function StorytellerApp({ user, onLogout }) {
   const showFormOnMobile = useMemo(() => {
     if (!isMobile || view !== 'create') return false;
     if (!currentStory) {
-      return true; // Always show form if there's no story yet
+      return true;
     }
-    // If there IS a story, show the form only when 'settings' is the selected view
     return mobileView === 'settings';
   }, [isMobile, view, currentStory, mobileView]);
 
@@ -205,7 +220,7 @@ function StorytellerApp({ user, onLogout }) {
       setIsHistoryLoading(false);
     }
   }, [authenticatedFetch]);
-  
+
   useEffect(() => {
     if (view === 'history') fetchHistory();
   }, [view, fetchHistory]);
@@ -225,7 +240,7 @@ function StorytellerApp({ user, onLogout }) {
       setFormState(prev => ({ ...prev, [name]: type === 'number' ? parseInt(value, 10) : value }));
     }
   };
-  
+
   const handleCreateNew = () => {
     setCurrentStory(null);
     setFormState(INITIAL_FORM_STATE);
@@ -235,7 +250,7 @@ function StorytellerApp({ user, onLogout }) {
     setMobileView('story');
     setView('create');
   };
-  
+
   const handleViewFromHistory = (historyItem) => {
     setCurrentStory(historyItem);
     setFormState({
@@ -253,45 +268,43 @@ function StorytellerApp({ user, onLogout }) {
     stopAudioTracking();
     setMobileView('story');
   };
-  
-const handleGenerateStory = async (e) => {
-  e.preventDefault();
-  if (!formState.genre || formState.genre === 'select') {
-    setError('Please select a genre.');
-    return;
-  }
-  setIsLoading(true);
-  setError('');
-  stopAudioTracking();
 
-  // Filter out empty optional fields before sending to backend
-  const filteredFormState = Object.fromEntries(
-    Object.entries(formState).filter(([key, value]) => value !== '')
-  );
+  const handleGenerateStory = async (e) => {
+    e.preventDefault();
+    if (!formState.genre || formState.genre === 'select') {
+      setError('Please select a genre.');
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    stopAudioTracking();
 
-  try {
-    const data = await authenticatedFetch('/story', {
-      method: 'POST',
-      body: JSON.stringify(filteredFormState)
-    });
-    const newStoryObject = {
-      ...formState,
-      title: formState.story_name,
-      text: data.story,
-      audio_url: data.audio_url,
-      id: data.audio_url.split('/').pop().split('?')[0].replace('.mp3', '')
-    };
-    setCurrentStory(newStoryObject);
-    fetchHistory();
-    setMobileView('story'); // Switch to story view on mobile after generation
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setIsLoading(false);
-  }
-};
+    const filteredFormState = Object.fromEntries(
+      Object.entries(formState).filter(([key, value]) => value !== '')
+    );
 
-  
+    try {
+      const data = await authenticatedFetch('/story', {
+        method: 'POST',
+        body: JSON.stringify(filteredFormState)
+      });
+      const newStoryObject = {
+        ...formState,
+        title: formState.story_name,
+        text: data.story,
+        audio_url: data.audio_url,
+        id: data.audio_url.split('/').pop().split('?')[0].replace('.mp3', '')
+      };
+      setCurrentStory(newStoryObject);
+      fetchHistory();
+      setMobileView('story');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRegenerateAudio = async () => {
     if (!currentStory) return;
     setIsAudioLoading(true);
@@ -332,11 +345,11 @@ const handleGenerateStory = async (e) => {
     }
     setIsPlaying(!isPlaying);
   };
-  
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-  
+
     const onPlay = () => {
       setIsPlaying(true);
       startAudioTracking();
@@ -352,12 +365,12 @@ const handleGenerateStory = async (e) => {
     const onLoadedMetadata = () => {
       if (audioRef.current) setAudioDuration(audioRef.current.duration);
     };
-  
+
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
-  
+
     return () => {
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
@@ -376,9 +389,10 @@ const handleGenerateStory = async (e) => {
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
-  // =================================================================================================
-  // RENDER METHOD
-  // =================================================================================================
+  // ========================= PROFILE MODAL =========================
+  // Add Profile button in header, remove Logout from header, and show Logout inside profile modal
+  // Only show user's email (user?.username)
+  // =================================================================
   return (
     <div className="storyteller-app">
       <NavSidebar
@@ -393,11 +407,11 @@ const handleGenerateStory = async (e) => {
           else setView(newView);
           setIsNavOpen(false);
         }}
+         onProfile={() => setIsProfileOpen(true)} // <-- add this line
       />
       {isNavOpen && <div className="overlay" onClick={() => setIsNavOpen(false)} />}
-      
+
       <Header
-        onLogout={onLogout}
         isDarkMode={isDarkMode}
         onToggleTheme={toggleTheme}
         view={view}
@@ -406,7 +420,44 @@ const handleGenerateStory = async (e) => {
           else setView(newView);
         }}
         onToggleNav={() => setIsNavOpen(true)}
+        onProfile={() => setIsProfileOpen(true)}
       />
+
+      {isProfileOpen && (
+  <div className="profile-modal-overlay" onClick={() => setIsProfileOpen(false)}>
+    <div
+      className="profile-modal"
+      onClick={e => e.stopPropagation()}
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+    >
+      <h3>Your Profile</h3>
+      <div className="profile-info-row">
+        <span className="profile-label">Email:</span>
+        <span className="profile-value">{userEmail || 'Unknown'}</span>
+      </div>
+      <button
+        className="profile-logout-btn"
+        onClick={() => {
+          setIsProfileOpen(false);
+          onLogout();
+        }}
+        aria-label="Logout"
+      >
+        <span role="img" aria-label="Logout">🚪</span> Logout
+      </button>
+      <button
+        className="profile-close-btn"
+        onClick={() => setIsProfileOpen(false)}
+        aria-label="Close"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+)}
+
 
       <main className="app-main">
         <aside className="desktop-sidebar">
@@ -422,7 +473,6 @@ const handleGenerateStory = async (e) => {
         <div className="content-area">
           {error && <div className="error-banner">{error}</div>}
 
-          {/* Render the mobile toggle bar when a story is active */}
           {isMobile && currentStory && view === 'create' && (
             <MobileViewToggle
               mobileView={mobileView}
@@ -430,7 +480,6 @@ const handleGenerateStory = async (e) => {
             />
           )}
 
-          {/* On mobile, show the form as the main content if the toggle is set to 'settings' */}
           {showFormOnMobile && (
             <div className="mobile-form-container">
               <StoryForm
@@ -443,10 +492,9 @@ const handleGenerateStory = async (e) => {
             </div>
           )}
 
-          {/* The story display/history view (hidden on mobile if form is shown) */}
           <div className={`story-display-container ${showFormOnMobile ? 'hidden-on-mobile' : ''}`}>
             {view === 'create' ? (
-              <StoryDisplay 
+              <StoryDisplay
                 story={currentStory} isLoading={isLoading} audioRef={audioRef}
                 isPlaying={isPlaying} currentWordIndex={currentWordIndex}
                 audioProgress={audioProgress} audioDuration={audioDuration}
@@ -454,7 +502,7 @@ const handleGenerateStory = async (e) => {
                 onProgressBarClick={handleProgressBarClick}
               />
             ) : (
-              <HistoryView 
+              <HistoryView
                 history={history} isLoading={isHistoryLoading} onView={handleViewFromHistory}
                 onDelete={handleDeleteStory} onCreateNew={handleCreateNew}
               />
@@ -487,12 +535,10 @@ const MobileViewToggle = ({ mobileView, onToggle }) => (
   </div>
 );
 
-const Header = ({ onLogout, isDarkMode, onToggleTheme, view, onNavigate, onToggleNav }) => (
+const Header = ({ isDarkMode, onToggleTheme, view, onNavigate, onToggleNav, onProfile }) => (
   <header className="app-header">
     <div className="header-content">
-      <h1> AI Storyteller</h1>
-      
-      {/* Desktop Header Actions */}
+      <h1>AI Storyteller</h1>
       <div className="header-actions">
         <button onClick={() => onNavigate('create')} className={`header-btn ${view === 'create' ? 'active' : ''}`}>
           Create
@@ -504,13 +550,10 @@ const Header = ({ onLogout, isDarkMode, onToggleTheme, view, onNavigate, onToggl
           {isDarkMode ? Icons.Sun : Icons.Moon}
           <span className="visually-hidden">Theme</span>
         </button>
-
-        <button onClick={onLogout} className="header-btn">
-          Logout
+        <button onClick={onProfile} className="header-btn" aria-label="Profile">
+        Profile
         </button>
       </div>
-      
-      {/* Mobile Nav Toggle */}
       <button onClick={onToggleNav} className="mobile-nav-toggle-btn" aria-label="Open navigation">
         {Icons.Menu}
       </button>
@@ -518,7 +561,7 @@ const Header = ({ onLogout, isDarkMode, onToggleTheme, view, onNavigate, onToggl
   </header>
 );
 
-const NavSidebar = ({ isOpen, onClose, onLogout, isDarkMode, onToggleTheme, view, onNavigate }) => (
+const NavSidebar = ({ isOpen, onClose, onLogout, isDarkMode, onToggleTheme, view, onNavigate, onProfile }) => (
   <aside className={`nav-sidebar ${isOpen ? 'open' : ''}`}>
     <div className="nav-sidebar-header">
       <h3>Navigation</h3>
@@ -534,8 +577,8 @@ const NavSidebar = ({ isOpen, onClose, onLogout, isDarkMode, onToggleTheme, view
       <button onClick={onToggleTheme} className="header-btn nav-btn" aria-label="Toggle theme">
         Theme
       </button>
-      <button onClick={onLogout} className="header-btn nav-btn">
-        Logout
+      <button onClick={onProfile} className="header-btn" aria-label="Profile">
+        Profile
       </button>
     </div>
   </aside>
@@ -548,7 +591,6 @@ const SidebarActions = ({ currentStory, isLoading, isAudioLoading, hasContentCha
         {Icons.NewStory} New Story
       </button>
     )}
-    
     {!currentStory ? (
       <button onClick={onSubmit} disabled={isLoading} className="btn-primary">
         {isLoading ? <><Icons.LoadingSpinner /> Creating...</> : 'Create Story'}
@@ -716,7 +758,7 @@ const StoryDisplay = ({ story, isLoading, audioRef, isPlaying, currentWordIndex,
       </div>
     );
   }
-  
+
   if (!story) {
     return (
       <div className="story-display-placeholder">
@@ -730,7 +772,7 @@ const StoryDisplay = ({ story, isLoading, audioRef, isPlaying, currentWordIndex,
 
   const renderHighlightedText = () => {
     if (!story.text) return null;
-    const words = story.text.split(/(\s+)/); // Split by space, keeping spaces
+    const words = story.text.split(/(\s+)/);
     let wordCount = 0;
     return words.map((word, index) => {
       const isWord = word.trim() !== '';
@@ -739,7 +781,7 @@ const StoryDisplay = ({ story, isLoading, audioRef, isPlaying, currentWordIndex,
         wordCount++;
         return <span key={index} className={highlight ? 'highlighted-text' : ''}>{word}</span>;
       }
-      return <span key={index}>{word}</span>; // Render space
+      return <span key={index}>{word}</span>;
     });
   };
 
