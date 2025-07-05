@@ -624,7 +624,7 @@ const StoryForm = (props) => {
   ];
   const basicFields = [
     { name: 'length', label: 'Story Length (words)', type: 'range', min: 100, max: 800, step: 10 },
-    { name: 'voice', label: 'Narration Voice', type: 'select', options: [ { value: 'Aditi', label: 'Aditi (Female, Hindi)' }, { value: 'Kajal', label: 'Kajal (Female, Hindi)' }, { value: 'Raveena', label: 'Raveena (Female, Hindi)' }, { value: 'Joanna', label: 'Joanna (Female, US)' }, { value: 'Matthew', label: 'Matthew (Male, US)' } ] },
+    { name: 'voice', label: 'Narration Voice', type: 'select', options: [ { value: 'Aditi', label: 'Aditi (Female, Hindi)' }, { value: 'Kajal', label: 'Kajal (Female, Hindi)' }, { value: 'Joanna', label: 'Joanna (Female, US)' }, { value: 'Matthew', label: 'Matthew (Male, US)' } ] },
     { name: 'rate', label: 'Speech Rate', type: 'select', options: ['slow', 'medium', 'fast'] },
   ];
   const characterFields = [
